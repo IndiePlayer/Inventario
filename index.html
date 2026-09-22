@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control de Inventario y Vencimientos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="pantalla-login" class="pantalla-login">
+  <div class="login-caja">
+    <h1 class="login-etiqueta">Proyecto<br>Inventario</h1>
+    <p class="login-descripcion">Visibilidad total del stock. Nada se vence sin que nadie lo note.</p>
+
+    <form id="form-login" class="login-form">
+      <label for="input-correo">Correo</label>
+      <input type="email" id="input-correo" placeholder="admin@demo.com" required>
+      <label for="input-clave">Contraseña</label>
+      <input type="password" id="input-clave" placeholder="••••••••" required>
+      <p id="login-error" class="login-error"></p>
+      <button type="submit" class="boton boton-primario">Entrar</button>
+    </form>
+  </div>
+</div>
+
+<div id="app" class="app oculto">
+
+  <aside class="barra-lateral">
+    <div class="marca">
+      <span class="marca-indicador"></span>
+      <div>
+        <p class="marca-nombre">Inventario</p>
+        <p class="marca-sub">Control de vencimientos</p>
+      </div>
+    </div>
+
+    <nav id="nav-principal" class="nav-principal"></nav>
+
+    <div class="usuario-actual">
+      <div>
+        <p id="usuario-nombre" class="usuario-nombre"></p>
+        <p id="usuario-rol" class="usuario-rol"></p>
+      </div>
+      <button id="boton-salir" class="boton-salir" title="Cerrar sesión">Salir</button>
+    </div>
+  </aside>
+
+  <main class="contenido">
+    <header class="encabezado">
+      <h2 id="titulo-vista">Panel</h2>
+      <p id="subtitulo-vista" class="subtitulo-vista"></p>
+    </header>
+
+    <section id="vista-dashboard" class="vista"></section>
+    <section id="vista-productos" class="vista"></section>
+    <section id="vista-movimientos" class="vista"></section>
+    <section id="vista-vencimientos" class="vista"></section>
+    <section id="vista-reportes" class="vista"></section>
+    <section id="vista-usuarios" class="vista"></section>
+  </main>
+</div>
+
+<div id="modal-fondo" class="modal-fondo oculto">
+  <div id="modal-caja" class="modal-caja"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
