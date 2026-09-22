@@ -48,9 +48,9 @@ input, select { font-family: inherit; }
 
 .login-etiqueta {
   font-family: var(--fuente-display);
-  font-size: 52px;
+  font-size: 13px;
   letter-spacing: 0.14em;
-  color: var(--rgb(46, 156, 125));
+  color: var(--teal);
   margin: 0 0 10px;
 }
 
