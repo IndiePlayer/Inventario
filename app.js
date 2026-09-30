@@ -1,29 +1,17 @@
-const CLAVE_DB = "inventario_db_v2";
-const CLAVE_SESION = "inventario_sesion_v2";
+const CLAVE_DB = "inventario_db_v1";
+const CLAVE_SESION = "inventario_sesion_v1";
 
-const RolUsuario = Object.freeze({
-  ADMINISTRADOR: "ADMINISTRADOR",
-  BODEGUERO: "BODEGUERO",
-  VENDEDOR: "VENDEDOR"
-});
-
-const EstadoLote = Object.freeze({
-  VIGENTE: "VIGENTE",
-  PROXIMO_A_VENCER: "PROXIMO_A_VENCER",
-  VENCIDO: "VENCIDO"
-});
-
-class StockInsuficienteError extends Error {}
-class PermisoDenegadoError extends Error {}
+const ETIQUETAS_VISTA = {
+  dashboard: ["Panel", "Indicadores generales del inventario"],
+  productos: ["Productos", "Consulta, registro y edición de productos"],
+  movimientos: ["Movimientos", "Entradas y salidas de stock por lote"],
+  vencimientos: ["Vencimientos", "Clasificación automática de lotes y alertas"],
+  reportes: ["Reportes", "Valorización, riesgo de vencimiento e historial"],
+  usuarios: ["Usuarios", "Gestión de usuarios y roles del sistema"]
+};
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function sumarDias(iso, dias) {
-  const fecha = new Date(iso);
-  fecha.setDate(fecha.getDate() + dias);
-  return fecha.toISOString().slice(0, 10);
 }
 
 function formatoMoneda(valor) {
@@ -36,60 +24,21 @@ function formatoFecha(iso) {
   return `${d}/${m}/${a}`;
 }
 
+function sumarDias(iso, dias) {
+  const fecha = new Date(iso);
+  fecha.setDate(fecha.getDate() + dias);
+  return fecha.toISOString().slice(0, 10);
+}
+
 function etiquetaEstado(estado) {
-  if (estado === EstadoLote.VIGENTE) return "vigente";
-  if (estado === EstadoLote.PROXIMO_A_VENCER) return "próximo a vencer";
+  if (estado === "VIGENTE") return "vigente";
+  if (estado === "PROXIMO_A_VENCER") return "próximo a vencer";
   return "vencido";
 }
 
 function insigniaEstado(estado) {
-  const clase = estado === EstadoLote.VIGENTE ? "insignia-vigente"
-    : estado === EstadoLote.PROXIMO_A_VENCER ? "insignia-proximo" : "insignia-vencido";
+  const clase = estado === "VIGENTE" ? "insignia-vigente" : estado === "PROXIMO_A_VENCER" ? "insignia-proximo" : "insignia-vencido";
   return `<span class="insignia ${clase}">${etiquetaEstado(estado)}</span>`;
-}
-
-function etiquetaRol(rol) {
-  if (rol === RolUsuario.ADMINISTRADOR) return "Administrador";
-  if (rol === RolUsuario.BODEGUERO) return "Bodeguero";
-  return "Vendedor";
-}
-
-class Usuario {
-  #id;
-  #nombre;
-  #correo;
-  #clave;
-  #rol;
-
-  constructor(id, nombre, correo, clave, rol) {
-    this.#id = id;
-    this.#nombre = nombre;
-    this.#correo = correo;
-    this.#clave = clave;
-    this.#rol = rol;
-  }
-
-  get id() { return this.#id; }
-  get nombre() { return this.#nombre; }
-  set nombre(valor) { this.#nombre = valor; }
-  get correo() { return this.#correo; }
-  set correo(valor) { this.#correo = valor; }
-  get clave() { return this.#clave; }
-  set clave(valor) { this.#clave = valor; }
-  get rol() { return this.#rol; }
-  set rol(valor) { this.#rol = valor; }
-
-  esAdministrador() {
-    return this.#rol === RolUsuario.ADMINISTRADOR;
-  }
-
-  toJSON() {
-    return { id: this.#id, nombre: this.#nombre, correo: this.#correo, clave: this.#clave, rol: this.#rol };
-  }
-
-  static desde(plano) {
-    return new Usuario(plano.id, plano.nombre, plano.correo, plano.clave, plano.rol);
-  }
 }
 
 class Lote {
@@ -98,43 +47,39 @@ class Lote {
   #fechaVencimiento;
   #estado;
 
-  constructor(id, cantidad, fechaVencimiento) {
+  constructor(id, cantidad, fechaVencimiento = null, estado = "VIGENTE") {
     this.#id = id;
-    this.#cantidad = cantidad;
-    this.#fechaVencimiento = fechaVencimiento || null;
-    this.#estado = EstadoLote.VIGENTE;
+    this.#cantidad = Number(cantidad);
+    this.#fechaVencimiento = fechaVencimiento;
+    this.#estado = estado;
   }
 
   get id() { return this.#id; }
   get cantidad() { return this.#cantidad; }
-  set cantidad(valor) { this.#cantidad = valor; }
   get fechaVencimiento() { return this.#fechaVencimiento; }
-  set fechaVencimiento(valor) { this.#fechaVencimiento = valor; }
   get estado() { return this.#estado; }
 
-  actualizarEstado(umbralDias) {
-    this.#estado = Lote.calcularEstado(this.#fechaVencimiento, umbralDias);
+  set estado(nuevoEstado) { this.#estado = nuevoEstado; }
+
+  incrementar(cant) {
+    this.#cantidad += Number(cant);
   }
 
-  static calcularEstado(fechaVencimiento, umbralDias) {
-    if (!fechaVencimiento) return EstadoLote.VIGENTE;
-    const hoy = new Date(hoyISO());
-    const vence = new Date(fechaVencimiento);
-    const limite = new Date(hoy);
-    limite.setDate(limite.getDate() + umbralDias);
-    if (vence < hoy) return EstadoLote.VENCIDO;
-    if (vence <= limite) return EstadoLote.PROXIMO_A_VENCER;
-    return EstadoLote.VIGENTE;
+  decrementar(cant) {
+    const valor = Number(cant);
+    if (valor > this.#cantidad) {
+      throw new Error(`Stock insuficiente: el lote #${this.#id} solo tiene ${this.#cantidad} unidades.`);
+    }
+    this.#cantidad -= valor;
   }
 
   toJSON() {
-    return { id: this.#id, cantidad: this.#cantidad, fechaVencimiento: this.#fechaVencimiento, estado: this.#estado };
-  }
-
-  static desde(plano) {
-    const lote = new Lote(plano.id, plano.cantidad, plano.fechaVencimiento);
-    lote.#estado = plano.estado;
-    return lote;
+    return {
+      id: this.#id,
+      cantidad: this.#cantidad,
+      fechaVencimiento: this.#fechaVencimiento,
+      estado: this.#estado
+    };
   }
 }
 
@@ -143,45 +88,53 @@ class Producto {
   #nombre;
   #descripcion;
   #precio;
-  #esPerecedero;
   #lotes;
 
-  constructor(codigo, nombre, descripcion, precio, esPerecedero) {
+  constructor(codigo, nombre, descripcion, precio, lotes = []) {
     this.#codigo = codigo;
     this.#nombre = nombre;
     this.#descripcion = descripcion;
-    this.#precio = precio;
-    this.#esPerecedero = esPerecedero;
-    this.#lotes = [];
+    this.#precio = Number(precio);
+    this.#lotes = lotes.map(l => (l instanceof Lote ? l : new Lote(l.id, l.cantidad, l.fechaVencimiento, l.estado)));
   }
 
   get codigo() { return this.#codigo; }
   get nombre() { return this.#nombre; }
-  set nombre(valor) { this.#nombre = valor; }
+  set nombre(val) { this.#nombre = val; }
   get descripcion() { return this.#descripcion; }
-  set descripcion(valor) { this.#descripcion = valor; }
+  set descripcion(val) { this.#descripcion = val; }
   get precio() { return this.#precio; }
-  set precio(valor) { this.#precio = valor; }
-  get esPerecedero() { return this.#esPerecedero; }
-  set esPerecedero(valor) { this.#esPerecedero = valor; }
-  get lotes() { return [...this.#lotes]; }
+  set precio(val) { this.#precio = Number(val); }
+  get lotes() { return this.#lotes; }
 
-  agregarLote(lote) {
+  get esPerecedero() { return false; }
+
+  agregarLote(id, cantidad, fechaVencimiento) {
+    const lote = new Lote(id, cantidad, this.validarFechaLote(fechaVencimiento));
     this.#lotes.push(lote);
+    return lote;
   }
 
-  getStockTotal() {
-    return this.#lotes.reduce((suma, lote) => suma + lote.cantidad, 0);
+  validarFechaLote(fecha) {
+    return null;
   }
 
-  getValorizacion() {
-    return this.getStockTotal() * this.#precio;
+  calcularEstadoLote(lote, umbralDias) {
+    return "VIGENTE";
   }
 
-  peorEstado() {
-    if (this.#lotes.some((l) => l.estado === EstadoLote.VENCIDO)) return EstadoLote.VENCIDO;
-    if (this.#lotes.some((l) => l.estado === EstadoLote.PROXIMO_A_VENCER)) return EstadoLote.PROXIMO_A_VENCER;
-    return EstadoLote.VIGENTE;
+  get stockTotal() {
+    return this.#lotes.reduce((sum, l) => sum + l.cantidad, 0);
+  }
+
+  get valorizacion() {
+    return this.stockTotal * this.#precio;
+  }
+
+  get peorEstado() {
+    if (this.#lotes.some(l => l.estado === "VENCIDO")) return "VENCIDO";
+    if (this.#lotes.some(l => l.estado === "PROXIMO_A_VENCER")) return "PROXIMO_A_VENCER";
+    return "VIGENTE";
   }
 
   toJSON() {
@@ -190,429 +143,343 @@ class Producto {
       nombre: this.#nombre,
       descripcion: this.#descripcion,
       precio: this.#precio,
-      esPerecedero: this.#esPerecedero,
-      lotes: this.#lotes.map((l) => l.toJSON())
+      esPerecedero: this.esPerecedero,
+      lotes: this.#lotes.map(l => l.toJSON())
     };
   }
+}
 
-  static desde(plano) {
-    const producto = new Producto(plano.codigo, plano.nombre, plano.descripcion, plano.precio, plano.esPerecedero);
-    plano.lotes.forEach((l) => producto.#lotes.push(Lote.desde(l)));
-    return producto;
+class ProductoPerecedero extends Producto {
+  get esPerecedero() { return true; }
+
+  validarFechaLote(fecha) {
+    if (!fecha) throw new Error("Debes indicar la fecha de vencimiento.");
+    return fecha;
+  }
+
+  calcularEstadoLote(lote, umbralDias) {
+    if (!lote.fechaVencimiento) return "VIGENTE";
+    const hoy = new Date(hoyISO());
+    const vence = new Date(lote.fechaVencimiento);
+    const limite = new Date(hoy);
+    limite.setDate(limite.getDate() + umbralDias);
+
+    if (vence < hoy) return "VENCIDO";
+    if (vence <= limite) return "PROXIMO_A_VENCER";
+    return "VIGENTE";
   }
 }
 
-class EfectoMovimiento {
-  aplicar(cantidadActual, cantidad) {
-    throw new Error("Debe implementarse en la subclase");
+class ProductoNoPerecedero extends Producto {
+  get esPerecedero() { return false; }
+}
+
+function crearProducto(datos) {
+  if (datos.esPerecedero) {
+    return new ProductoPerecedero(datos.codigo, datos.nombre, datos.descripcion, datos.precio, datos.lotes);
   }
-  getNombre() {
-    throw new Error("Debe implementarse en la subclase");
+  return new ProductoNoPerecedero(datos.codigo, datos.nombre, datos.descripcion, datos.precio, datos.lotes);
+}
+
+class Usuario {
+  #id;
+  #nombre;
+  #correo;
+  #clave;
+
+  constructor(id, nombre, correo, clave) {
+    this.#id = id;
+    this.#nombre = nombre;
+    this.#correo = correo;
+    this.#clave = clave;
+  }
+
+  get id() { return this.#id; }
+  get nombre() { return this.#nombre; }
+  get correo() { return this.#correo; }
+  get clave() { return this.#clave; }
+
+  get rol() { return "USUARIO"; }
+  get etiquetaRol() { return "Usuario"; }
+  get vistasPermitidas() { return ["dashboard", "productos"]; }
+  puedeEscribirProductos() { return false; }
+  puedeEliminarProductos() { return false; }
+  puedeRegistrarMovimientos() { return false; }
+  puedeEvaluarVencimientos() { return false; }
+  puedeGestionarUsuarios() { return false; }
+
+  validarClave(claveIngresada) {
+    return this.#clave === claveIngresada;
+  }
+
+  toJSON() {
+    return {
+      id: this.#id,
+      nombre: this.#nombre,
+      correo: this.#correo,
+      clave: this.#clave,
+      rol: this.rol
+    };
   }
 }
 
-class EntradaMovimiento extends EfectoMovimiento {
-  aplicar(cantidadActual, cantidad) {
-    return cantidadActual + cantidad;
+class Administrador extends Usuario {
+  get rol() { return "ADMINISTRADOR"; }
+  get etiquetaRol() { return "Administrador"; }
+  get vistasPermitidas() {
+    return ["dashboard", "productos", "movimientos", "vencimientos", "reportes", "usuarios"];
   }
-  getNombre() {
-    return "ENTRADA";
+  puedeEscribirProductos() { return true; }
+  puedeEliminarProductos() { return true; }
+  puedeRegistrarMovimientos() { return true; }
+  puedeEvaluarVencimientos() { return true; }
+  puedeGestionarUsuarios() { return true; }
+}
+
+class Bodeguero extends Usuario {
+  get rol() { return "BODEGUERO"; }
+  get etiquetaRol() { return "Bodeguero"; }
+  get vistasPermitidas() {
+    return ["dashboard", "productos", "movimientos", "vencimientos", "reportes"];
+  }
+  puedeEscribirProductos() { return true; }
+  puedeEliminarProductos() { return false; }
+  puedeRegistrarMovimientos() { return true; }
+  puedeEvaluarVencimientos() { return true; }
+  puedeGestionarUsuarios() { return false; }
+}
+
+class Vendedor extends Usuario {
+  get rol() { return "VENDEDOR"; }
+  get etiquetaRol() { return "Vendedor"; }
+  get vistasPermitidas() {
+    return ["dashboard", "productos"];
   }
 }
 
-class SalidaMovimiento extends EfectoMovimiento {
-  aplicar(cantidadActual, cantidad) {
-    if (cantidadActual - cantidad < 0) {
-      throw new StockInsuficienteError(`Stock insuficiente: solo hay ${cantidadActual} unidades.`);
-    }
-    return cantidadActual - cantidad;
-  }
-  getNombre() {
-    return "SALIDA";
-  }
-}
-
-class DevolucionMovimiento extends EfectoMovimiento {
-  aplicar(cantidadActual, cantidad) {
-    return cantidadActual + cantidad;
-  }
-  getNombre() {
-    return "DEVOLUCION";
+function crearUsuario(datos) {
+  switch (datos.rol) {
+    case "ADMINISTRADOR":
+      return new Administrador(datos.id, datos.nombre, datos.correo, datos.clave);
+    case "BODEGUERO":
+      return new Bodeguero(datos.id, datos.nombre, datos.correo, datos.clave);
+    case "VENDEDOR":
+      return new Vendedor(datos.id, datos.nombre, datos.correo, datos.clave);
+    default:
+      return new Usuario(datos.id, datos.nombre, datos.correo, datos.clave);
   }
 }
-
-const EFECTOS_MOVIMIENTO = {
-  ENTRADA: new EntradaMovimiento(),
-  SALIDA: new SalidaMovimiento(),
-  DEVOLUCION: new DevolucionMovimiento()
-};
 
 class Movimiento {
-  #id;
-  #producto;
-  #lote;
-  #efecto;
-  #cantidad;
-  #fecha;
-  #usuarioResponsable;
-
-  constructor(id, producto, lote, efecto, cantidad, usuarioResponsable) {
-    this.#id = id;
-    this.#producto = producto;
-    this.#lote = lote;
-    this.#efecto = efecto;
-    this.#cantidad = cantidad;
-    this.#usuarioResponsable = usuarioResponsable;
-    this.#fecha = hoyISO();
+  constructor(id, codigoProducto, nombreProducto, loteId, cantidad, usuario, fecha = hoyISO()) {
+    this.id = id;
+    this.codigoProducto = codigoProducto;
+    this.nombreProducto = nombreProducto;
+    this.loteId = loteId;
+    this.cantidad = Number(cantidad);
+    this.usuario = usuario;
+    this.fecha = fecha;
   }
 
-  get id() { return this.#id; }
-  get producto() { return this.#producto; }
-  get lote() { return this.#lote; }
-  get efecto() { return this.#efecto; }
-  get cantidad() { return this.#cantidad; }
-  get fecha() { return this.#fecha; }
-  get usuarioResponsable() { return this.#usuarioResponsable; }
-
-  toJSON() {
-    return {
-      id: this.#id,
-      codigoProducto: this.#producto.codigo,
-      nombreProducto: this.#producto.nombre,
-      loteId: this.#lote.id,
-      tipo: this.#efecto.getNombre(),
-      cantidad: this.#cantidad,
-      fecha: this.#fecha,
-      usuario: this.#usuarioResponsable.nombre
-    };
-  }
-}
-
-class Alerta {
-  #id;
-  #codigoProducto;
-  #nombreProducto;
-  #loteId;
-  #estado;
-  #mensaje;
-  #fecha;
-  #atendida;
-
-  constructor(id, codigoProducto, nombreProducto, loteId, estado, mensaje) {
-    this.#id = id;
-    this.#codigoProducto = codigoProducto;
-    this.#nombreProducto = nombreProducto;
-    this.#loteId = loteId;
-    this.#estado = estado;
-    this.#mensaje = mensaje;
-    this.#fecha = hoyISO();
-    this.#atendida = false;
-  }
-
-  get id() { return this.#id; }
-  get codigoProducto() { return this.#codigoProducto; }
-  get nombreProducto() { return this.#nombreProducto; }
-  get loteId() { return this.#loteId; }
-  get estado() { return this.#estado; }
-  get mensaje() { return this.#mensaje; }
-  get fecha() { return this.#fecha; }
-  get atendida() { return this.#atendida; }
-
-  marcarComoAtendida() {
-    this.#atendida = true;
+  aplicar(lote) {
+    throw new Error("El método aplicar() debe ser implementado.");
   }
 
   toJSON() {
     return {
-      id: this.#id,
-      codigoProducto: this.#codigoProducto,
-      nombreProducto: this.#nombreProducto,
-      loteId: this.#loteId,
-      estado: this.#estado,
-      mensaje: this.#mensaje,
-      fecha: this.#fecha,
-      atendida: this.#atendida
+      id: this.id,
+      codigoProducto: this.codigoProducto,
+      nombreProducto: this.nombreProducto,
+      loteId: this.loteId,
+      tipo: this.tipo,
+      cantidad: this.cantidad,
+      fecha: this.fecha,
+      usuario: this.usuario
     };
   }
+}
 
-  static desde(plano) {
-    const alerta = new Alerta(plano.id, plano.codigoProducto, plano.nombreProducto, plano.loteId, plano.estado, plano.mensaje);
-    alerta.#fecha = plano.fecha;
-    alerta.#atendida = plano.atendida;
-    return alerta;
+class MovimientoEntrada extends Movimiento {
+  get tipo() { return "ENTRADA"; }
+  aplicar(lote) {
+    lote.incrementar(this.cantidad);
   }
 }
 
-class Reporte {
-  generar(productos, movimientos) {
-    throw new Error("Debe implementarse en la subclase");
-  }
-  getNombre() {
-    throw new Error("Debe implementarse en la subclase");
+class MovimientoSalida extends Movimiento {
+  get tipo() { return "SALIDA"; }
+  aplicar(lote) {
+    lote.decrementar(this.cantidad);
   }
 }
 
-class ReporteValorizacion extends Reporte {
-  generar(productos) {
-    return productos.reduce((suma, producto) => suma + producto.getValorizacion(), 0);
-  }
-  getNombre() {
-    return "VALORIZACION";
+class MovimientoDevolucion extends Movimiento {
+  get tipo() { return "DEVOLUCION"; }
+  aplicar(lote) {
+    lote.incrementar(this.cantidad);
   }
 }
 
-class ReporteVencimientos extends Reporte {
-  generar(productos) {
-    const enRiesgo = [];
-    productos.forEach((producto) => {
-      producto.lotes.forEach((lote) => {
-        if (lote.estado !== EstadoLote.VIGENTE) enRiesgo.push({ producto, lote });
-      });
-    });
-    return enRiesgo;
+function crearMovimiento(datos) {
+  if (datos.tipo === "SALIDA") {
+    return new MovimientoSalida(datos.id, datos.codigoProducto, datos.nombreProducto, datos.loteId, datos.cantidad, datos.usuario, datos.fecha);
   }
-  getNombre() {
-    return "VENCIMIENTOS";
+  if (datos.tipo === "DEVOLUCION") {
+    return new MovimientoDevolucion(datos.id, datos.codigoProducto, datos.nombreProducto, datos.loteId, datos.cantidad, datos.usuario, datos.fecha);
   }
+  return new MovimientoEntrada(datos.id, datos.codigoProducto, datos.nombreProducto, datos.loteId, datos.cantidad, datos.usuario, datos.fecha);
 }
 
-class ReporteMovimientos extends Reporte {
-  generar(productos, movimientos) {
-    return movimientos;
-  }
-  getNombre() {
-    return "MOVIMIENTOS";
-  }
-}
-
-class InventarioService {
+class SistemaInventario {
+  #usuarios = [];
   #productos = [];
   #movimientos = [];
-  #siguienteIdLote = 1;
-  #siguienteIdMovimiento = 1;
-
-  registrarProducto(producto) {
-    this.#productos.push(producto);
-  }
-
-  eliminarProducto(producto, usuario) {
-    if (!usuario.esAdministrador()) {
-      throw new PermisoDenegadoError("Solo el administrador puede eliminar productos.");
-    }
-    this.#productos = this.#productos.filter((p) => p.codigo !== producto.codigo);
-  }
-
-  buscarProducto(codigo) {
-    return this.#productos.find((p) => p.codigo === codigo) || null;
-  }
-
-  registrarLote(producto, cantidad, fechaVencimiento) {
-    if (producto.esPerecedero && !fechaVencimiento) {
-      throw new Error("Los productos perecederos requieren fecha de vencimiento.");
-    }
-    const lote = new Lote(this.#siguienteIdLote++, cantidad, producto.esPerecedero ? fechaVencimiento : null);
-    producto.agregarLote(lote);
-    return lote;
-  }
-
-  registrarMovimiento(producto, lote, efecto, cantidad, usuario) {
-    lote.cantidad = efecto.aplicar(lote.cantidad, cantidad);
-    const movimiento = new Movimiento(this.#siguienteIdMovimiento++, producto, lote, efecto, cantidad, usuario);
-    this.#movimientos.push(movimiento.toJSON());
-    return movimiento;
-  }
-
-  get productos() { return [...this.#productos]; }
-  get movimientos() { return [...this.#movimientos]; }
-
-  cargarProductos(productos, siguienteIdLote) {
-    this.#productos = productos;
-    this.#siguienteIdLote = siguienteIdLote;
-  }
-
-  cargarMovimientos(movimientos, siguienteIdMovimiento) {
-    this.#movimientos = movimientos;
-    this.#siguienteIdMovimiento = siguienteIdMovimiento;
-  }
-
-  get siguienteIdLote() { return this.#siguienteIdLote; }
-  get siguienteIdMovimiento() { return this.#siguienteIdMovimiento; }
-}
-
-class VencimientoService {
-  #umbralDias = 30;
   #alertas = [];
-  #siguienteIdAlerta = 1;
+  #config = { umbralDias: 30 };
+  #contadores = { lote: 5, movimiento: 1, alerta: 1, usuario: 4 };
 
-  get umbralDias() { return this.#umbralDias; }
-  set umbralDias(dias) { this.#umbralDias = dias; }
+  get usuarios() { return this.#usuarios; }
+  get productos() { return this.#productos; }
+  get movimientos() { return this.#movimientos; }
+  get alertas() { return this.#alertas; }
+  get config() { return this.#config; }
+  get contadores() { return this.#contadores; }
 
-  evaluarVencimientos(productos) {
-    productos.forEach((producto) => {
-      producto.lotes.forEach((lote) => {
+  cargarDesdeObjeto(data) {
+    this.#config = data.config || { umbralDias: 30 };
+    this.#contadores = data.contadores || { lote: 5, movimiento: 1, alerta: 1, usuario: 4 };
+    this.#usuarios = (data.usuarios || []).map(crearUsuario);
+    this.#productos = (data.productos || []).map(crearProducto);
+    this.#movimientos = (data.movimientos || []).map(crearMovimiento);
+    this.#alertas = data.alertas || [];
+    this.recalcularEstados(false);
+  }
+
+  guardar() {
+    const data = {
+      usuarios: this.#usuarios.map(u => u.toJSON()),
+      productos: this.#productos.map(p => p.toJSON()),
+      movimientos: this.#movimientos.map(m => m.toJSON()),
+      alertas: this.#alertas,
+      config: this.#config,
+      contadores: this.#contadores
+    };
+    localStorage.setItem(CLAVE_DB, JSON.stringify(data));
+  }
+
+  recalcularEstados(generarAlertas = false) {
+    this.#productos.forEach(producto => {
+      producto.lotes.forEach(lote => {
         const anterior = lote.estado;
-        lote.actualizarEstado(this.#umbralDias);
-        if (lote.estado !== anterior &&
-            (lote.estado === EstadoLote.PROXIMO_A_VENCER || lote.estado === EstadoLote.VENCIDO)) {
-          this.#alertas.unshift(new Alerta(
-            this.#siguienteIdAlerta++,
-            producto.codigo,
-            producto.nombre,
-            lote.id,
-            lote.estado,
-            `El lote #${lote.id} de "${producto.nombre}" pasó a estado ${etiquetaEstado(lote.estado)}`
-          ));
+        lote.estado = producto.calcularEstadoLote(lote, this.#config.umbralDias);
+
+        if (generarAlertas && lote.estado !== anterior && (lote.estado === "PROXIMO_A_VENCER" || lote.estado === "VENCIDO")) {
+          this.#alertas.unshift({
+            id: this.#contadores.alerta++,
+            codigoProducto: producto.codigo,
+            nombreProducto: producto.nombre,
+            loteId: lote.id,
+            estado: lote.estado,
+            mensaje: `El lote #${lote.id} de "${producto.nombre}" pasó a estado ${etiquetaEstado(lote.estado)}`,
+            fecha: hoyISO()
+          });
         }
       });
     });
   }
 
-  get alertas() { return this.#alertas.map((a) => a.toJSON()); }
-
-  cargarAlertas(alertas, siguienteIdAlerta, umbralDias) {
-    this.#alertas = alertas;
-    this.#siguienteIdAlerta = siguienteIdAlerta;
-    this.#umbralDias = umbralDias;
+  registrarMovimiento(movimiento, lote) {
+    movimiento.aplicar(lote);
+    this.#movimientos.push(movimiento);
+    this.guardar();
   }
-}
 
-class UsuarioService {
-  #usuarios = [];
-  #siguienteId = 1;
+  agregarProducto(producto) {
+    this.#productos.push(producto);
+    this.guardar();
+  }
 
-  registrarUsuario(nombre, correo, clave, rol) {
-    const usuario = new Usuario(this.#siguienteId++, nombre, correo, clave, rol);
+  eliminarProducto(codigo) {
+    this.#productos = this.#productos.filter(p => p.codigo !== codigo);
+    this.guardar();
+  }
+
+  agregarUsuario(usuario) {
     this.#usuarios.push(usuario);
-    return usuario;
+    this.guardar();
   }
 
-  autenticar(correo, clave) {
-    return this.#usuarios.find((u) => u.correo === correo && u.clave === clave) || null;
-  }
-
-  eliminarUsuario(objetivo, solicitante) {
-    if (!solicitante.esAdministrador()) {
-      throw new PermisoDenegadoError("Solo el administrador puede eliminar usuarios.");
-    }
-    this.#usuarios = this.#usuarios.filter((u) => u.id !== objetivo.id);
-  }
-
-  existeCorreo(correo) {
-    return this.#usuarios.some((u) => u.correo === correo);
-  }
-
-  get usuarios() { return [...this.#usuarios]; }
-
-  cargarUsuarios(usuarios, siguienteId) {
-    this.#usuarios = usuarios;
-    this.#siguienteId = siguienteId;
+  eliminarUsuario(id) {
+    this.#usuarios = this.#usuarios.filter(u => u.id !== id);
+    this.guardar();
   }
 }
 
-class ReporteService {
-  generar(reporte, productos, movimientos) {
-    return reporte.generar(productos, movimientos);
-  }
-}
-
-const PERMISOS = {
-  ADMINISTRADOR: {
-    vistas: ["dashboard", "productos", "movimientos", "vencimientos", "reportes", "usuarios"],
-    productosEscribir: true,
-    productosEliminar: true,
-    movimientosRegistrar: true,
-    vencimientosEvaluar: true,
-    usuariosGestionar: true
-  },
-  BODEGUERO: {
-    vistas: ["dashboard", "productos", "movimientos", "vencimientos", "reportes"],
-    productosEscribir: true,
-    productosEliminar: false,
-    movimientosRegistrar: true,
-    vencimientosEvaluar: true,
-    usuariosGestionar: false
-  },
-  VENDEDOR: {
-    vistas: ["dashboard", "productos"],
-    productosEscribir: false,
-    productosEliminar: false,
-    movimientosRegistrar: false,
-    vencimientosEvaluar: false,
-    usuariosGestionar: false
-  }
-};
-
-const ETIQUETAS_VISTA = {
-  dashboard: ["Panel", "Indicadores generales del inventario"],
-  productos: ["Productos", "Consulta, registro y edición de productos"],
-  movimientos: ["Movimientos", "Entradas y salidas de stock por lote"],
-  vencimientos: ["Vencimientos", "Clasificación automática de lotes y alertas"],
-  reportes: ["Reportes", "Valorización, riesgo de vencimiento e historial"],
-  usuarios: ["Usuarios", "Gestión de usuarios y roles del sistema"]
-};
-
-const inventarioService = new InventarioService();
-const vencimientoService = new VencimientoService();
-const usuarioService = new UsuarioService();
-const reporteService = new ReporteService();
-
+const sistema = new SistemaInventario();
 let sesionActual = null;
 let vistaActual = "dashboard";
 let filtroProductoTexto = "";
 let filtroProductoEstado = "TODOS";
 
-function sembrarDatosIniciales() {
-  usuarioService.registrarUsuario("Ana Ríos", "admin@demo.com", "admin123", RolUsuario.ADMINISTRADOR);
-  usuarioService.registrarUsuario("Luis Bodega", "bodega@demo.com", "bodega123", RolUsuario.BODEGUERO);
-  usuarioService.registrarUsuario("Sara Ventas", "ventas@demo.com", "ventas123", RolUsuario.VENDEDOR);
-
-  const yogur = new Producto("P-001", "Yogur natural 1L", "Lácteo refrigerado", 8500, true);
-  inventarioService.registrarProducto(yogur);
-  inventarioService.registrarLote(yogur, 40, sumarDias(hoyISO(), 5));
-  inventarioService.registrarLote(yogur, 15, sumarDias(hoyISO(), -2));
-
-  const arroz = new Producto("P-002", "Arroz premium 1kg", "Grano seco, no perecedero", 4200, false);
-  inventarioService.registrarProducto(arroz);
-  inventarioService.registrarLote(arroz, 120, null);
-
-  const queso = new Producto("P-003", "Queso campesino 500g", "Lácteo refrigerado", 11900, true);
-  inventarioService.registrarProducto(queso);
-  inventarioService.registrarLote(queso, 8, sumarDias(hoyISO(), 25));
-
-  vencimientoService.evaluarVencimientos(inventarioService.productos);
-}
-
-function guardarEstado() {
-  const estado = {
-    usuarios: usuarioService.usuarios.map((u) => u.toJSON()),
-    siguienteIdUsuario: usuarioService.usuarios.reduce((max, u) => Math.max(max, u.id + 1), 1),
-    productos: inventarioService.productos.map((p) => p.toJSON()),
-    siguienteIdLote: inventarioService.siguienteIdLote,
-    movimientos: inventarioService.movimientos,
-    siguienteIdMovimiento: inventarioService.siguienteIdMovimiento,
-    alertas: vencimientoService.alertas,
-    siguienteIdAlerta: vencimientoService.alertas.reduce((max, a) => Math.max(max, a.id + 1), 1),
-    umbralDias: vencimientoService.umbralDias
-  };
-  localStorage.setItem(CLAVE_DB, JSON.stringify(estado));
-}
-
-function cargarEstado() {
+function cargarDB() {
   const guardado = localStorage.getItem(CLAVE_DB);
-  if (!guardado) {
-    sembrarDatosIniciales();
-    guardarEstado();
-    return;
+  if (guardado) {
+    sistema.cargarDesdeObjeto(JSON.parse(guardado));
+  } else {
+    sistema.cargarDesdeObjeto(crearDatosIniciales());
+    sistema.guardar();
   }
-  const estado = JSON.parse(guardado);
-  usuarioService.cargarUsuarios(estado.usuarios.map((u) => Usuario.desde(u)), estado.siguienteIdUsuario);
-  inventarioService.cargarProductos(estado.productos.map((p) => Producto.desde(p)), estado.siguienteIdLote);
-  inventarioService.cargarMovimientos(estado.movimientos, estado.siguienteIdMovimiento);
-  vencimientoService.cargarAlertas(estado.alertas.map((a) => Alerta.desde(a)), estado.siguienteIdAlerta, estado.umbralDias);
+}
+
+function crearDatosIniciales() {
+  return {
+    usuarios: [
+      { id: 1, nombre: "Martin Ríos", correo: "admin@demo.com", clave: "admin123", rol: "ADMINISTRADOR" },
+      { id: 2, nombre: "Damir Bodega", correo: "bodega@demo.com", clave: "bodega123", rol: "BODEGUERO" },
+      { id: 3, nombre: "Tafur Ventas", correo: "ventas@demo.com", clave: "ventas123", rol: "VENDEDOR" }
+    ],
+    productos: [
+      {
+        codigo: "P-001",
+        nombre: "Yogur natural 1L",
+        descripcion: "Lácteo refrigerado",
+        precio: 8500,
+        esPerecedero: true,
+        lotes: [
+          { id: 1, cantidad: 40, fechaVencimiento: sumarDias(hoyISO(), 5), estado: "VIGENTE" },
+          { id: 2, cantidad: 15, fechaVencimiento: sumarDias(hoyISO(), -2), estado: "VIGENTE" }
+        ]
+      },
+      {
+        codigo: "P-002",
+        nombre: "Arroz premium 1kg",
+        descripcion: "Grano seco, no perecedero",
+        precio: 4200,
+        esPerecedero: false,
+        lotes: [
+          { id: 3, cantidad: 120, fechaVencimiento: null, estado: "VIGENTE" }
+        ]
+      },
+      {
+        codigo: "P-003",
+        nombre: "Queso campesino 500g",
+        descripcion: "Lácteo refrigerado",
+        precio: 11900,
+        esPerecedero: true,
+        lotes: [
+          { id: 4, cantidad: 8, fechaVencimiento: sumarDias(hoyISO(), 25), estado: "VIGENTE" }
+        ]
+      }
+    ],
+    movimientos: [],
+    alertas: [],
+    config: { umbralDias: 30 },
+    contadores: { lote: 5, movimiento: 1, alerta: 1, usuario: 4 }
+  };
 }
 
 function iniciarSesion(correo, clave) {
-  const usuario = usuarioService.autenticar(correo, clave);
+  const usuario = sistema.usuarios.find(u => u.correo === correo && u.validarClave(clave));
   if (!usuario) return null;
   sesionActual = usuario;
   sessionStorage.setItem(CLAVE_SESION, String(usuario.id));
@@ -622,7 +489,7 @@ function iniciarSesion(correo, clave) {
 function restaurarSesion() {
   const idGuardado = sessionStorage.getItem(CLAVE_SESION);
   if (!idGuardado) return false;
-  const usuario = usuarioService.usuarios.find((u) => u.id === Number(idGuardado));
+  const usuario = sistema.usuarios.find(u => u.id === Number(idGuardado));
   if (!usuario) return false;
   sesionActual = usuario;
   return true;
@@ -636,16 +503,13 @@ function cerrarSesion() {
   document.getElementById("form-login").reset();
 }
 
-function permisosActuales() {
-  return PERMISOS[sesionActual.rol];
-}
-
 function mostrarApp() {
   document.getElementById("pantalla-login").classList.add("oculto");
   document.getElementById("app").classList.remove("oculto");
   document.getElementById("usuario-nombre").textContent = sesionActual.nombre;
-  document.getElementById("usuario-rol").textContent = etiquetaRol(sesionActual.rol);
-  const vistasPermitidas = permisosActuales().vistas;
+  document.getElementById("usuario-rol").textContent = sesionActual.etiquetaRol;
+  
+  const vistasPermitidas = sesionActual.vistasPermitidas;
   vistaActual = vistasPermitidas.includes(vistaActual) ? vistaActual : vistasPermitidas[0];
   renderNav();
   renderVista();
@@ -653,12 +517,12 @@ function mostrarApp() {
 
 function renderNav() {
   const nav = document.getElementById("nav-principal");
-  const vistas = permisosActuales().vistas;
-  nav.innerHTML = vistas.map((v) => {
+  const vistas = sesionActual.vistasPermitidas;
+  nav.innerHTML = vistas.map(v => {
     const activo = v === vistaActual ? "activo" : "";
     return `<button class="nav-item ${activo}" data-vista="${v}">${ETIQUETAS_VISTA[v][0]}</button>`;
   }).join("");
-  nav.querySelectorAll(".nav-item").forEach((boton) => {
+  nav.querySelectorAll(".nav-item").forEach(boton => {
     boton.addEventListener("click", () => {
       vistaActual = boton.dataset.vista;
       renderNav();
@@ -668,7 +532,7 @@ function renderNav() {
 }
 
 function renderVista() {
-  document.querySelectorAll(".vista").forEach((s) => s.classList.remove("activa"));
+  document.querySelectorAll(".vista").forEach(s => s.classList.remove("activa"));
   document.getElementById("titulo-vista").textContent = ETIQUETAS_VISTA[vistaActual][0];
   document.getElementById("subtitulo-vista").textContent = ETIQUETAS_VISTA[vistaActual][1];
   const seccion = document.getElementById("vista-" + vistaActual);
@@ -683,13 +547,11 @@ function renderVista() {
 }
 
 function renderDashboard(seccion) {
-  const productos = inventarioService.productos;
-  const valorTotal = reporteService.generar(new ReporteValorizacion(), productos, inventarioService.movimientos);
-  const bajoStock = productos.filter((p) => p.getStockTotal() <= 10).length;
-  const enRiesgo = reporteService.generar(new ReporteVencimientos(), productos, inventarioService.movimientos);
-  const proximos = enRiesgo.filter((r) => r.lote.estado === EstadoLote.PROXIMO_A_VENCER).length;
-  const vencidos = enRiesgo.filter((r) => r.lote.estado === EstadoLote.VENCIDO).length;
-  const alertas = vencimientoService.alertas;
+  sistema.recalcularEstados(false);
+  const valorTotal = sistema.productos.reduce((s, p) => s + p.valorizacion, 0);
+  const bajoStock = sistema.productos.filter(p => p.stockTotal <= 10).length;
+  const proximos = sistema.productos.reduce((s, p) => s + p.lotes.filter(l => l.estado === "PROXIMO_A_VENCER").length, 0);
+  const vencidos = sistema.productos.reduce((s, p) => s + p.lotes.filter(l => l.estado === "VENCIDO").length, 0);
 
   seccion.innerHTML = `
     <div class="tarjetas-kpi">
@@ -700,10 +562,10 @@ function renderDashboard(seccion) {
     </div>
     <div class="panel">
       <p class="panel-titulo">Alertas recientes</p>
-      ${alertas.length === 0
+      ${sistema.alertas.length === 0
         ? `<p class="mensaje-vacio">Aún no se han generado alertas. Ve a "Vencimientos" y evalúa el inventario.</p>`
         : `<table><thead><tr><th>Fecha</th><th>Producto</th><th>Lote</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody>
-            ${alertas.slice(0, 8).map((a) => `
+            ${sistema.alertas.slice(0, 8).map(a => `
               <tr><td>${formatoFecha(a.fecha)}</td><td>${a.nombreProducto}</td><td>#${a.loteId}</td><td>${insigniaEstado(a.estado)}</td><td>${a.mensaje}</td></tr>
             `).join("")}
           </tbody></table>`}
@@ -712,18 +574,18 @@ function renderDashboard(seccion) {
 }
 
 function productosFiltrados() {
-  return inventarioService.productos.filter((p) => {
+  return sistema.productos.filter(p => {
     const coincideTexto = !filtroProductoTexto ||
       p.nombre.toLowerCase().includes(filtroProductoTexto) ||
       p.codigo.toLowerCase().includes(filtroProductoTexto);
     const coincideEstado = filtroProductoEstado === "TODOS" ||
-      p.lotes.some((l) => l.estado === filtroProductoEstado);
+      p.lotes.some(l => l.estado === filtroProductoEstado);
     return coincideTexto && coincideEstado;
   });
 }
 
 function renderProductos(seccion) {
-  const permisos = permisosActuales();
+  sistema.recalcularEstados(false);
   const lista = productosFiltrados();
 
   seccion.innerHTML = `
@@ -736,38 +598,37 @@ function renderProductos(seccion) {
           <option value="PROXIMO_A_VENCER">Próximo a vencer</option>
           <option value="VENCIDO">Vencido</option>
         </select>
-        ${permisos.productosEscribir ? `<button class="boton boton-primario" id="boton-nuevo-producto">Registrar producto</button>` : ""}
+        ${sesionActual.puedeEscribirProductos() ? `<button class="boton boton-primario" id="boton-nuevo-producto">Registrar producto</button>` : ""}
       </div>
       ${lista.length === 0 ? `<p class="mensaje-vacio">No hay productos que coincidan con la búsqueda.</p>` : `
       <table>
-        <thead><tr><th>Código</th><th>Nombre</th><th>Precio</th><th>Stock</th><th>Estado</th>${permisos.productosEscribir ? "<th></th>" : ""}</tr></thead>
+        <thead><tr><th>Código</th><th>Nombre</th><th>Precio</th><th>Stock</th><th>Estado</th>${sesionActual.puedeEscribirProductos() ? "<th></th>" : ""}</tr></thead>
         <tbody>
-          ${lista.map((p) => `
+          ${lista.map(p => `
             <tr>
               <td>${p.codigo}</td>
               <td>${p.nombre}${p.esPerecedero ? ' <span class="insignia insignia-proximo">perecedero</span>' : ""}</td>
               <td>${formatoMoneda(p.precio)}</td>
-              <td>${p.getStockTotal()}</td>
-              <td>${insigniaEstado(p.peorEstado())}</td>
-              ${permisos.productosEscribir ? `
+              <td>${p.stockTotal}</td>
+              <td>${insigniaEstado(p.peorEstado)}</td>
+              ${sesionActual.puedeEscribirProductos() ? `
               <td class="acciones-fila">
                 <button data-accion="lote" data-codigo="${p.codigo}">+ Lote</button>
                 <button data-accion="editar" data-codigo="${p.codigo}">Editar</button>
-                ${permisos.productosEliminar ? `<button class="boton-peligro" data-accion="eliminar" data-codigo="${p.codigo}">Eliminar</button>` : ""}
+                ${sesionActual.puedeEliminarProductos() ? `<button class="boton-peligro" data-accion="eliminar" data-codigo="${p.codigo}">Eliminar</button>` : ""}
               </td>` : ""}
-            </tr>
-          `).join("")}
+            </tr>`).join("")}
         </tbody>
       </table>`}
     </div>
   `;
 
-  document.getElementById("buscador-producto").addEventListener("input", (e) => {
+  document.getElementById("buscador-producto").addEventListener("input", e => {
     filtroProductoTexto = e.target.value.toLowerCase();
     renderProductos(seccion);
   });
   document.getElementById("filtro-estado-producto").value = filtroProductoEstado;
-  document.getElementById("filtro-estado-producto").addEventListener("change", (e) => {
+  document.getElementById("filtro-estado-producto").addEventListener("change", e => {
     filtroProductoEstado = e.target.value;
     renderProductos(seccion);
   });
@@ -775,9 +636,10 @@ function renderProductos(seccion) {
   const botonNuevo = document.getElementById("boton-nuevo-producto");
   if (botonNuevo) botonNuevo.addEventListener("click", () => abrirFormularioProducto());
 
-  seccion.querySelectorAll("[data-accion]").forEach((boton) => {
+  seccion.querySelectorAll("[data-accion]").forEach(boton => {
     boton.addEventListener("click", () => {
-      const producto = inventarioService.buscarProducto(boton.dataset.codigo);
+      const codigo = boton.dataset.codigo;
+      const producto = sistema.productos.find(p => p.codigo === codigo);
       if (boton.dataset.accion === "editar") abrirFormularioProducto(producto);
       if (boton.dataset.accion === "lote") abrirFormularioLote(producto);
       if (boton.dataset.accion === "eliminar") confirmarEliminarProducto(producto);
@@ -794,7 +656,7 @@ function cerrarModal() {
   document.getElementById("modal-fondo").classList.add("oculto");
 }
 
-document.addEventListener("click", (e) => {
+document.addEventListener("click", e => {
   if (e.target.id === "modal-fondo") cerrarModal();
 });
 
@@ -817,8 +679,9 @@ function abrirFormularioProducto(producto) {
       </div>
     </form>
   `);
+
   document.getElementById("cancelar-producto").addEventListener("click", cerrarModal);
-  document.getElementById("form-producto").addEventListener("submit", (e) => {
+  document.getElementById("form-producto").addEventListener("submit", e => {
     e.preventDefault();
     const datos = new FormData(e.target);
     const codigo = (datos.get("codigo") || "").trim();
@@ -828,7 +691,7 @@ function abrirFormularioProducto(producto) {
     const descripcion = datos.get("descripcion").trim();
     const error = document.getElementById("error-producto");
 
-    if (!esEdicion && inventarioService.buscarProducto(codigo)) {
+    if (!esEdicion && sistema.productos.some(p => p.codigo === codigo)) {
       error.textContent = "Ya existe un producto con ese código.";
       return;
     }
@@ -840,12 +703,13 @@ function abrirFormularioProducto(producto) {
     if (esEdicion) {
       producto.nombre = nombre;
       producto.precio = precio;
-      producto.esPerecedero = esPerecedero;
       producto.descripcion = descripcion;
+      sistema.guardar();
     } else {
-      inventarioService.registrarProducto(new Producto(codigo, nombre, descripcion, precio, esPerecedero));
+      const nuevo = crearProducto({ codigo, nombre, descripcion, precio, esPerecedero, lotes: [] });
+      sistema.agregarProducto(nuevo);
     }
-    guardarEstado();
+
     cerrarModal();
     renderVista();
   });
@@ -867,8 +731,9 @@ function abrirFormularioLote(producto) {
       </div>
     </form>
   `);
+
   document.getElementById("cancelar-lote").addEventListener("click", cerrarModal);
-  document.getElementById("form-lote").addEventListener("submit", (e) => {
+  document.getElementById("form-lote").addEventListener("submit", e => {
     e.preventDefault();
     const datos = new FormData(e.target);
     const cantidad = Number(datos.get("cantidad"));
@@ -879,16 +744,16 @@ function abrirFormularioLote(producto) {
       error.textContent = "La cantidad debe ser mayor a cero.";
       return;
     }
+
     try {
-      inventarioService.registrarLote(producto, cantidad, fecha);
+      producto.agregarLote(sistema.contadores.lote++, cantidad, fecha);
+      sistema.recalcularEstados(false);
+      sistema.guardar();
+      cerrarModal();
+      renderVista();
     } catch (err) {
       error.textContent = err.message;
-      return;
     }
-    vencimientoService.evaluarVencimientos(inventarioService.productos);
-    guardarEstado();
-    cerrarModal();
-    renderVista();
   });
 }
 
@@ -903,27 +768,18 @@ function confirmarEliminarProducto(producto) {
   `);
   document.getElementById("cancelar-eliminar").addEventListener("click", cerrarModal);
   document.getElementById("confirmar-eliminar").addEventListener("click", () => {
-    try {
-      inventarioService.eliminarProducto(producto, sesionActual);
-    } catch (err) {
-      cerrarModal();
-      alert(err.message);
-      return;
-    }
-    guardarEstado();
+    sistema.eliminarProducto(producto.codigo);
     cerrarModal();
     renderVista();
   });
 }
 
 function opcionesLote(producto) {
-  return producto.lotes.map((l) => `<option value="${l.id}">Lote #${l.id} — ${l.cantidad} u. — ${formatoFecha(l.fechaVencimiento)}</option>`).join("");
+  return producto.lotes.map(l => `<option value="${l.id}">Lote #${l.id} — ${l.cantidad} u. — ${formatoFecha(l.fechaVencimiento)}</option>`).join("");
 }
 
 function renderMovimientos(seccion) {
-  const productos = inventarioService.productos;
-  const movimientos = inventarioService.movimientos;
-
+  const productos = sistema.productos;
   seccion.innerHTML = `
     <div class="panel">
       <p class="panel-titulo">Registrar movimiento</p>
@@ -933,7 +789,7 @@ function renderMovimientos(seccion) {
           <div class="campo">
             <label>Producto</label>
             <select id="select-producto-mov" name="producto">
-              ${productos.map((p) => `<option value="${p.codigo}">${p.codigo} — ${p.nombre}</option>`).join("")}
+              ${productos.map(p => `<option value="${p.codigo}">${p.codigo} —${p.nombre}</option>`).join("")}
             </select>
           </div>
           <div class="campo">
@@ -956,11 +812,11 @@ function renderMovimientos(seccion) {
     </div>
     <div class="panel">
       <p class="panel-titulo">Historial de movimientos</p>
-      ${movimientos.length === 0 ? `<p class="mensaje-vacio">Todavía no hay movimientos registrados.</p>` : `
+      ${sistema.movimientos.length === 0 ? `<p class="mensaje-vacio">Todavía no hay movimientos registrados.</p>` : `
       <table>
         <thead><tr><th>Fecha</th><th>Producto</th><th>Lote</th><th>Tipo</th><th>Cantidad</th><th>Usuario</th></tr></thead>
         <tbody>
-          ${movimientos.slice().reverse().map((m) => `
+          ${sistema.movimientos.slice().reverse().map(m => `
             <tr><td>${formatoFecha(m.fecha)}</td><td>${m.nombreProducto}</td><td>#${m.loteId}</td><td>${m.tipo}</td><td>${m.cantidad}</td><td>${m.usuario}</td></tr>
           `).join("")}
         </tbody>
@@ -971,21 +827,23 @@ function renderMovimientos(seccion) {
   const selectProducto = document.getElementById("select-producto-mov");
   const selectLote = document.getElementById("select-lote-mov");
   const actualizarLotes = () => {
-    const producto = inventarioService.buscarProducto(selectProducto.value);
+    const producto = sistema.productos.find(p => p.codigo === selectProducto.value);
     selectLote.innerHTML = producto ? opcionesLote(producto) : "";
   };
   selectProducto.addEventListener("change", actualizarLotes);
   actualizarLotes();
 
-  document.getElementById("form-movimiento").addEventListener("submit", (e) => {
+  document.getElementById("form-movimiento").addEventListener("submit", e => {
     e.preventDefault();
     const datos = new FormData(e.target);
-    const producto = inventarioService.buscarProducto(datos.get("producto"));
+    const codigoProducto = datos.get("producto");
     const loteId = Number(datos.get("lote"));
-    const lote = producto.lotes.find((l) => l.id === loteId);
-    const efecto = EFECTOS_MOVIMIENTO[datos.get("tipo")];
+    const tipo = datos.get("tipo");
     const cantidad = Number(datos.get("cantidad"));
     const error = document.getElementById("error-movimiento");
+
+    const producto = sistema.productos.find(p => p.codigo === codigoProducto);
+    const lote = producto ? producto.lotes.find(l => l.id === loteId) : null;
 
     if (!lote) {
       error.textContent = "Selecciona un lote válido.";
@@ -993,36 +851,45 @@ function renderMovimientos(seccion) {
     }
 
     try {
-      inventarioService.registrarMovimiento(producto, lote, efecto, cantidad, sesionActual);
+      const movimiento = crearMovimiento({
+        id: sistema.contadores.movimiento++,
+        codigoProducto,
+        nombreProducto: producto.nombre,
+        loteId,
+        tipo,
+        cantidad,
+        usuario: sesionActual.nombre
+      });
+
+      sistema.registrarMovimiento(movimiento, lote);
+      renderVista();
     } catch (err) {
       error.textContent = err.message;
-      return;
     }
-
-    guardarEstado();
-    renderVista();
   });
 }
 
 function renderVencimientos(seccion) {
-  const permisos = permisosActuales();
-  const productos = inventarioService.productos;
-  const enRiesgo = reporteService.generar(new ReporteVencimientos(), productos, inventarioService.movimientos);
+  sistema.recalcularEstados(false);
+  const lotesRiesgo = [];
+  sistema.productos.forEach(p => p.lotes.forEach(l => {
+    if (l.estado !== "VIGENTE") lotesRiesgo.push({ lote: l, producto: p });
+  }));
 
   seccion.innerHTML = `
     <div class="panel">
       <div class="fila-herramientas">
         <label style="color:var(--texto-muted);font-size:13px">Umbral "próximo a vencer" (días)</label>
-        <input type="number" id="input-umbral" min="1" value="${vencimientoService.umbralDias}" style="width:90px" ${permisos.vencimientosEvaluar ? "" : "disabled"}>
-        ${permisos.vencimientosEvaluar ? `<button class="boton boton-primario" id="boton-evaluar">Evaluar vencimientos ahora</button>` : ""}
+        <input type="number" id="input-umbral" min="1" value="${sistema.config.umbralDias}" style="width:90px" ${sesionActual.puedeEvaluarVencimientos() ? "" : "disabled"}>
+        ${sesionActual.puedeEvaluarVencimientos() ? `<button class="boton boton-primario" id="boton-evaluar">Evaluar vencimientos ahora</button>` : ""}
       </div>
       <div class="nota-regla">El umbral es configurable (ej. 30, 15 o 7 días). Un lote vencido siempre queda marcado como VENCIDO, sin importar el umbral.</div>
-      ${enRiesgo.length === 0 ? `<p class="mensaje-vacio">No hay lotes próximos a vencer ni vencidos.</p>` : `
+      ${lotesRiesgo.length === 0 ? `<p class="mensaje-vacio">No hay lotes próximos a vencer ni vencidos.</p>` : `
       <table>
         <thead><tr><th>Producto</th><th>Lote</th><th>Cantidad</th><th>Vence</th><th>Estado</th></tr></thead>
         <tbody>
-          ${enRiesgo.map((r) => `
-            <tr><td>${r.producto.nombre}</td><td>#${r.lote.id}</td><td>${r.lote.cantidad}</td><td>${formatoFecha(r.lote.fechaVencimiento)}</td><td>${insigniaEstado(r.lote.estado)}</td></tr>
+          ${lotesRiesgo.map(item => `
+            <tr><td>${item.producto.nombre}</td><td>#${item.lote.id}</td><td>${item.lote.cantidad}</td><td>${formatoFecha(item.lote.fechaVencimiento)}</td><td>${insigniaEstado(item.lote.estado)}</td></tr>
           `).join("")}
         </tbody>
       </table>`}
@@ -1032,18 +899,17 @@ function renderVencimientos(seccion) {
   const botonEvaluar = document.getElementById("boton-evaluar");
   if (botonEvaluar) {
     botonEvaluar.addEventListener("click", () => {
-      vencimientoService.umbralDias = Number(document.getElementById("input-umbral").value) || vencimientoService.umbralDias;
-      vencimientoService.evaluarVencimientos(inventarioService.productos);
-      guardarEstado();
+      sistema.config.umbralDias = Number(document.getElementById("input-umbral").value) || sistema.config.umbralDias;
+      sistema.recalcularEstados(true);
+      sistema.guardar();
       renderVista();
     });
   }
 }
 
 function renderReportes(seccion) {
-  const productos = inventarioService.productos;
-  const movimientos = inventarioService.movimientos;
-  const valorTotal = reporteService.generar(new ReporteValorizacion(), productos, movimientos);
+  sistema.recalcularEstados(false);
+  const valorTotal = sistema.productos.reduce((s, p) => s + p.valorizacion, 0);
 
   seccion.innerHTML = `
     <div class="panel">
@@ -1051,8 +917,8 @@ function renderReportes(seccion) {
       <table>
         <thead><tr><th>Producto</th><th>Stock</th><th>Precio unitario</th><th>Valorización</th></tr></thead>
         <tbody>
-          ${productos.map((p) => `
-            <tr><td>${p.nombre}</td><td>${p.getStockTotal()}</td><td>${formatoMoneda(p.precio)}</td><td>${formatoMoneda(p.getValorizacion())}</td></tr>
+          ${sistema.productos.map(p => `
+            <tr><td>${p.nombre}</td><td>${p.stockTotal}</td><td>${formatoMoneda(p.precio)}</td><td>${formatoMoneda(p.valorizacion)}</td></tr>
           `).join("")}
         </tbody>
         <tfoot><tr><td colspan="3" style="text-align:right;color:var(--texto-muted)">Total</td><td style="font-weight:700">${formatoMoneda(valorTotal)}</td></tr></tfoot>
@@ -1063,27 +929,25 @@ function renderReportes(seccion) {
       <p class="panel-titulo">Historial de movimientos por producto</p>
       <select id="filtro-reporte-producto" style="margin-bottom:14px;background:var(--panel-alt);border:1px solid var(--borde);color:var(--texto);border-radius:7px;padding:8px 10px">
         <option value="TODOS">Todos los productos</option>
-        ${productos.map((p) => `<option value="${p.codigo}">${p.nombre}</option>`).join("")}
+        ${sistema.productos.map(p => `<option value="${p.codigo}">${p.nombre}</option>`).join("")}
       </select>
       <div id="tabla-historial"></div>
     </div>
   `;
 
-  const pintarHistorial = (codigo) => {
-    const todos = reporteService.generar(new ReporteMovimientos(), productos, movimientos);
-    const filtrados = codigo === "TODOS" ? todos : todos.filter((m) => m.codigoProducto === codigo);
+  const pintarHistorial = codigo => {
+    const filtrados = codigo === "TODOS" ? sistema.movimientos : sistema.movimientos.filter(m => m.codigoProducto === codigo);
     document.getElementById("tabla-historial").innerHTML = filtrados.length === 0
       ? `<p class="mensaje-vacio">Sin movimientos para este filtro.</p>`
       : `<table><thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th>Cantidad</th></tr></thead><tbody>
-          ${filtrados.slice().reverse().map((m) => `<tr><td>${formatoFecha(m.fecha)}</td><td>${m.nombreProducto}</td><td>${m.tipo}</td><td>${m.cantidad}</td></tr>`).join("")}
+          ${filtrados.slice().reverse().map(m => `<tr><td>${formatoFecha(m.fecha)}</td><td>${m.nombreProducto}</td><td>${m.tipo}</td><td>${m.cantidad}</td></tr>`).join("")}
         </tbody></table>`;
   };
   pintarHistorial("TODOS");
-  document.getElementById("filtro-reporte-producto").addEventListener("change", (e) => pintarHistorial(e.target.value));
+  document.getElementById("filtro-reporte-producto").addEventListener("change", e => pintarHistorial(e.target.value));
 }
 
 function renderUsuarios(seccion) {
-  const usuarios = usuarioService.usuarios;
   seccion.innerHTML = `
     <div class="panel">
       <div class="fila-herramientas">
@@ -1092,9 +956,9 @@ function renderUsuarios(seccion) {
       <table>
         <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th></th></tr></thead>
         <tbody>
-          ${usuarios.map((u) => `
+          ${sistema.usuarios.map(u => `
             <tr>
-              <td>${u.nombre}</td><td>${u.correo}</td><td>${etiquetaRol(u.rol)}</td>
+              <td>${u.nombre}</td><td>${u.correo}</td><td>${u.etiquetaRol}</td>
               <td class="acciones-fila">
                 ${u.id === sesionActual.id ? "" : `<button class="boton-peligro" data-id="${u.id}">Eliminar</button>`}
               </td>
@@ -1106,16 +970,10 @@ function renderUsuarios(seccion) {
   `;
 
   document.getElementById("boton-nuevo-usuario").addEventListener("click", abrirFormularioUsuario);
-  seccion.querySelectorAll("[data-id]").forEach((boton) => {
+  seccion.querySelectorAll("[data-id]").forEach(boton => {
     boton.addEventListener("click", () => {
-      const objetivo = usuarioService.usuarios.find((u) => u.id === Number(boton.dataset.id));
-      try {
-        usuarioService.eliminarUsuario(objetivo, sesionActual);
-      } catch (err) {
-        alert(err.message);
-        return;
-      }
-      guardarEstado();
+      const id = Number(boton.dataset.id);
+      sistema.eliminarUsuario(id);
       renderVista();
     });
   });
@@ -1145,24 +1003,34 @@ function abrirFormularioUsuario() {
       </div>
     </form>
   `);
+
   document.getElementById("cancelar-usuario").addEventListener("click", cerrarModal);
-  document.getElementById("form-usuario").addEventListener("submit", (e) => {
+  document.getElementById("form-usuario").addEventListener("submit", e => {
     e.preventDefault();
     const datos = new FormData(e.target);
     const correo = datos.get("correo").trim();
     const error = document.getElementById("error-usuario");
-    if (usuarioService.existeCorreo(correo)) {
+
+    if (sistema.usuarios.some(u => u.correo === correo)) {
       error.textContent = "Ya existe un usuario con ese correo.";
       return;
     }
-    usuarioService.registrarUsuario(datos.get("nombre").trim(), correo, datos.get("clave"), datos.get("rol"));
-    guardarEstado();
+
+    const nuevo = crearUsuario({
+      id: sistema.contadores.usuario++,
+      nombre: datos.get("nombre").trim(),
+      correo,
+      clave: datos.get("clave"),
+      rol: datos.get("rol")
+    });
+
+    sistema.agregarUsuario(nuevo);
     cerrarModal();
     renderVista();
   });
 }
 
-document.getElementById("form-login").addEventListener("submit", (e) => {
+document.getElementById("form-login").addEventListener("submit", e => {
   e.preventDefault();
   const correo = document.getElementById("input-correo").value.trim();
   const clave = document.getElementById("input-clave").value;
@@ -1178,7 +1046,7 @@ document.getElementById("form-login").addEventListener("submit", (e) => {
 
 document.getElementById("boton-salir").addEventListener("click", cerrarSesion);
 
-cargarEstado();
+cargarDB();
 if (restaurarSesion()) {
   mostrarApp();
 }
